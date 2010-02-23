@@ -47,6 +47,11 @@ from FSEvents import \
     kFSEventStreamEventFlagUserDropped, \
     kFSEventStreamEventFlagKernelDropped
 
+try:
+    from CoreLocation import CLLocationManager, kCLLocationAccuracyBest
+except ImportError, e:
+    pass
+
 import os
 import os.path
 import logging
@@ -68,7 +73,7 @@ HANDLER_OBJECTS  = dict()     # Events which have a "class" handler use an insta
 SC_HANDLERS      = dict()     # Callbacks indexed by SystemConfiguration keys
 FS_WATCHED_FILES = dict()     # Callbacks indexed by filesystem path
 MDNS_BROWSERS    = dict()
-
+CL_HANDLERS      = []
 
 class BaseHandler(object):
     # pylint: disable-msg=C0111,R0903
@@ -152,6 +157,40 @@ class MDNSBrowser(NSObject):
                 'resolved': resolved,
                 'TXTRecordData': service.TXTRecordData(),
             })
+
+
+class LocationDelegate(NSObject):
+    def init(self):
+        self = super(LocationDelegate, self).init()
+        if self is None: return None
+        self.callable = None
+        return self
+
+    def start_manager(self):
+        lm = self.manager = CLLocationManager.new()
+        lm.setDelegate_(self)
+        lm.setDesiredAccuracy_(kCLLocationAccuracyBest)
+        lm.startUpdatingLocation()
+
+    def locationManager_didUpdateToLocation_fromLocation_(self, manager, location, oldloc):
+        c = location.coordinate()
+        lat, lon = c.latitude, c.longitude
+        haccuracy = location.horizontalAccuracy()
+
+        if oldloc and lat == oldloc.coordinate().latitude and \
+           lon == oldloc.coordinate().longitude and \
+           haccuracy == oldloc.horizontalAccuracy():
+            return
+
+        if self.callable:
+            self.callable(location_info={
+                'latitude': lat,
+                'longitude': lon,
+                'horizontalAccuracy': haccuracy,
+            })
+
+    def locationManager_didFailWithError_(self, manager, error):
+        pass
 
 
 def log_list(msg, items, level=logging.INFO):
@@ -465,6 +504,14 @@ def add_mdns_notifications(mdns_config):
         MDNS_BROWSERS[type_] = browser
 
 
+def add_cl_notifications(cl_config):
+    for conf in cl_config:
+        manager = LocationDelegate.new()
+        manager.callable = get_callable_for_event('CoreLocation', conf, context="CLCoreLocation")
+        manager.start_manager()
+        CL_HANDLERS.append(manager)
+
+
 def add_fs_notifications(fs_config):
     for path in fs_config:
         add_fs_notification(path, get_callable_for_event(path, fs_config[path], context="FSEvent: %s" % path))
@@ -554,6 +601,9 @@ def main():
 
     if "NSNetService" in CRANKD_CONFIG:
         add_mdns_notifications(CRANKD_CONFIG['NSNetService'])
+
+    if "CLLocation" in CRANKD_CONFIG:
+        add_cl_notifications(CRANKD_CONFIG['CLLocation'])
 
     # We reuse our FSEvents code to watch for changes to our files and
     # restart if any of our libraries have been updated:
