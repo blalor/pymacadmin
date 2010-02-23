@@ -141,16 +141,17 @@ class MDNSBrowser(NSObject):
         self.notify(service, False)
     
     def notify(self, service, resolved):
-        self.callable(service_info={
-            'name': service.name(),
-            'type': service.type(),
-            'port': service.port(),
-            'hostName': service.hostName(),
-            'domain': service.domain(),
-            'addresses': service.addresses(),
-            'resolved': resolved,
-            'TXTRecordData': service.TXTRecordData(),
-        })
+        if self.callable:
+            self.callable(service_info={
+                'name': service.name(),
+                'type': service.type(),
+                'port': service.port(),
+                'hostName': service.hostName(),
+                'domain': service.domain(),
+                'addresses': service.addresses(),
+                'resolved': resolved,
+                'TXTRecordData': service.TXTRecordData(),
+            })
 
 
 def log_list(msg, items, level=logging.INFO):
