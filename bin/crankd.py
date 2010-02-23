@@ -25,6 +25,7 @@ from Cocoa import \
     CFRunLoopAddSource, \
     CFRunLoopAddTimer, \
     CFRunLoopTimerCreate, \
+    NSNetServiceBrowser, \
     NSObject, \
     NSRunLoop, \
     NSWorkspace, \
@@ -66,6 +67,7 @@ VERSION          = '$Revision: #4 $'
 HANDLER_OBJECTS  = dict()     # Events which have a "class" handler use an instantiated object; we want to load only one copy
 SC_HANDLERS      = dict()     # Callbacks indexed by SystemConfiguration keys
 FS_WATCHED_FILES = dict()     # Callbacks indexed by filesystem path
+MDNS_BROWSERS    = dict()
 
 
 class BaseHandler(object):
@@ -108,6 +110,47 @@ class NSNotificationHandler(NSObject):
         else:
             user_info = None
         self.callable(user_info=user_info) # pylint: disable-msg=E1101
+
+
+class MDNSBrowser(NSObject):
+    def init(self):
+        self = super(MDNSBrowser, self).init()
+        if self is None: return None
+        self.services = set()
+        self.callable = None
+        return self
+
+    def search(self, type_):
+        self.type = type_
+        b = self.browser = NSNetServiceBrowser.new()
+        b.setDelegate_(self)
+        b.searchForServicesOfType_inDomain_(type_, '')
+    
+    def netServiceBrowser_didFindService_moreComing_(self, browser, service, morecoming):
+        self.services.add(service)
+        service.setDelegate_(self)
+        service.resolveWithTimeout_(5)
+
+    def netServiceBrowser_didRemoveService_moreComing_(self, browser, service, morecoming):
+        pass    
+    
+    def netServiceDidResolveAddress_(self, service):
+        self.notify(service, True)
+
+    def netService_didNotResolve_(self, service, errinfo):
+        self.notify(service, False)
+    
+    def notify(self, service, resolved):
+        self.callable(service_info={
+            'name': service.name(),
+            'type': service.type(),
+            'port': service.port(),
+            'hostName': service.hostName(),
+            'domain': service.domain(),
+            'addresses': service.addresses(),
+            'resolved': resolved,
+            'TXTRecordData': service.TXTRecordData(),
+        })
 
 
 def log_list(msg, items, level=logging.INFO):
@@ -304,6 +347,11 @@ def load_config(options):
                 'NSWorkspaceWillSleepNotification': {
                     'command': '/bin/echo "The system is about to go to sleep!"'
                 }
+            },
+            'NSNetService': {
+                '_ssh._tcp.': {
+                    'command': '/bin/echo "new ssh server seen!"'
+                }
             }
         }
         writePlist(example_config, options.config_file)
@@ -408,6 +456,14 @@ def add_sc_notifications(sc_config):
     log_list("Listening for these SystemConfiguration events: %s", keys)
 
 
+def add_mdns_notifications(mdns_config):
+    for type_ in mdns_config:
+        browser = MDNSBrowser.new()
+        browser.callable = get_callable_for_event(type_, mdns_config[type_], context="NSNetServiceBrowser type: %s" % type_)
+        browser.search(type_)
+        MDNS_BROWSERS[type_] = browser
+
+
 def add_fs_notifications(fs_config):
     for path in fs_config:
         add_fs_notification(path, get_callable_for_event(path, fs_config[path], context="FSEvent: %s" % path))
@@ -494,6 +550,9 @@ def main():
 
     if "FSEvents" in CRANKD_CONFIG:
         add_fs_notifications(CRANKD_CONFIG['FSEvents'])
+
+    if "NSNetService" in CRANKD_CONFIG:
+        add_mdns_notifications(CRANKD_CONFIG['NSNetService'])
 
     # We reuse our FSEvents code to watch for changes to our files and
     # restart if any of our libraries have been updated:
