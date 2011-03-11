@@ -72,12 +72,13 @@ class BaseHandler(object):
     # pylint: disable-msg=C0111,R0903
     pass
 
+
 class NSNotificationHandler(NSObject):
     """Simple base class for handling NSNotification events"""
     # Method names and class structure are dictated by Cocoa & PyObjC, which
     # is substantially different from PEP-8:
     # pylint: disable-msg=C0103,W0232,R0903
-
+    
     def init(self):
         """NSObject-compatible initializer"""
         self = super(NSNotificationHandler, self).init()
@@ -92,6 +93,7 @@ class NSNotificationHandler(NSObject):
         stack = inspect.stack()
         my_name = stack[0][3]
         caller  = stack[1][3]
+        
         raise NotImplementedError(
             "%s should have been overridden. Called by %s as: %s(%s)" % (
                 my_name,
@@ -100,7 +102,7 @@ class NSNotificationHandler(NSObject):
                 ", ".join(map(repr, args) + [ "%s=%s" % (k, repr(v)) for k,v in kwargs.items() ])
             )
         )
-
+    
     def onNotification_(self, the_notification):
         """Pass an NSNotifications to our handler"""
         if the_notification.userInfo:
@@ -108,34 +110,36 @@ class NSNotificationHandler(NSObject):
         else:
             user_info = None
         self.callable(user_info=user_info) # pylint: disable-msg=E1101
+    
 
 
 def log_list(msg, items, level=logging.INFO):
     """
     Record a a list of values with a message
-
+    
     This would ordinarily be a simple logging call but we want to keep the
     length below the 1024-byte syslog() limitation and we'll format things
     nicely by repeating our message with as many of the values as will fit.
-
+    
     Individual items longer than the maximum length will be truncated.
     """
-
+    
     max_len    = 1024 - len(msg % "")
     cur_len    = 0
     cur_items  = list()
-
+    
     while [ i[:max_len] for i in items]:
         i = items.pop()
         if cur_len + len(i) + 2 > max_len:
             logging.info(msg % ", ".join(cur_items))
             cur_len = 0
             cur_items = list()
-
+        
         cur_items.append(i)
         cur_len += len(i) + 2
-
+    
     logging.log(level, msg % ", ".join(cur_items))
+
 
 def get_callable_for_event(name, event_config, context=None):
     """
@@ -404,7 +408,7 @@ def add_sc_notifications(sc_config):
         SCDynamicStoreCreateRunLoopSource(None, store, 0),
         kCFRunLoopCommonModes
     )
-
+    
     log_list("Listening for these SystemConfiguration events: %s", keys)
 
 
@@ -472,6 +476,7 @@ def fsevent_callback(stream_ref, full_path, event_count, paths, masks, ids):
             logging.debug("FSEvent: %s: processing %d callback(s) for path %s" % (i, len(FS_WATCHED_FILES[i]), path))
             for j in FS_WATCHED_FILES[i]:
                 j(i, path=path, recursive=recursive)
+            
 
 
 def timer_callback(*args):
@@ -483,6 +488,7 @@ def main():
     configure_logging()
     
     global CRANKD_OPTIONS, CRANKD_CONFIG
+    
     CRANKD_OPTIONS = process_commandline()
     CRANKD_CONFIG  = load_config(CRANKD_OPTIONS)
 
@@ -525,6 +531,7 @@ def main():
         logging.info("KeyboardInterrupt received, exiting")
     
     sys.exit(0)
+
 
 def create_env_name(name):
     """
