@@ -18,6 +18,7 @@ function:     the name of a python function
 class:        the name of a python class which will be instantiated once
               and have methods called as events occur.
 method:       (class, method) tuple
+process:      ??
 """
 
 from Cocoa import \
@@ -28,7 +29,8 @@ from Cocoa import \
     NSObject, \
     NSRunLoop, \
     NSWorkspace, \
-    kCFRunLoopCommonModes
+    kCFRunLoopCommonModes, \
+    NSDistributedNotificationCenter
 
 from SystemConfiguration import \
     SCDynamicStoreCopyKeyList, \
@@ -67,6 +69,9 @@ HANDLER_OBJECTS  = dict()     # Events which have a "class" handler use an insta
 SC_HANDLERS      = dict()     # Callbacks indexed by SystemConfiguration keys
 FS_WATCHED_FILES = dict()     # Callbacks indexed by filesystem path
 
+# distnot patch: added *_IDS globals to track addition/removal of events
+DISTRIBUTED_IDS  = dict()
+RELAUNCH_IDS     = dict()
 
 class BaseHandler(object):
     # pylint: disable-msg=C0111,R0903
@@ -165,6 +170,8 @@ def get_callable_for_event(name, event_config, context=None):
         f = partial(get_callable_from_string(event_config["function"]), **kwargs)
     elif "method" in event_config:
         f = partial(getattr(get_handler_object(event_config['method'][0]), event_config['method'][1]), **kwargs)
+    elif "process" in event_config:
+        f = partial(do_relaunch, event_config, **kwargs)
     else:
         raise AttributeError("%s have a class, method, function or command" % name)
     
@@ -240,7 +247,10 @@ def list_events(option, opt_str, value, parser):
         NSWorkspaceWillSleepNotification
         NSWorkspaceWillUnmountNotification
     '''.split())
-
+    
+    # distnot patch: output fact that crankd supports nsdistnot's
+    print "Any NSDistributedNotification message.\n"
+    
     sys.exit(0)
 
 
@@ -345,33 +355,99 @@ def get_sc_store():
     return SCDynamicStoreCreate(None, "crankd", handle_sc_event, None)
 
 
+# distnot patch: pulled code from add_workspace_notifications here so I can add individual notification
+#        programatically
+def add_workspace_notification(event, event_config, center):
+    if "class" in event_config:
+        obj         = get_handler_object(event_config['class'])
+        objc_method = "on%s:" % event
+        py_method   = objc_method.replace(":", "_")
+        
+        if not hasattr(obj, py_method) or not callable(getattr(obj, py_method)):
+            print  >> sys.stderr, "NSWorkspace Notification %s: handler class %s must define a %s method" % (event, event_config['class'], py_method)
+            sys.exit(1)
+        
+        notification_center.addObserver_selector_name_object_(obj, objc_method, event, None)
+    else:
+        handler          = NSNotificationHandler.new()
+        handler.name     = "NSWorkspace Notification %s" % event
+        handler.callable = get_callable_for_event(event, event_config, context=handler.name)
+        
+        assert(callable(handler.onNotification_))
+        
+        center.addObserver_selector_name_object_(handler, "onNotification:", event, None)
+
+
+# distnot patch: see note above
 def add_workspace_notifications(nsw_config):
     # See http://developer.apple.com/documentation/Cocoa/Conceptual/Workspace/Workspace.html
     notification_center = NSWorkspace.sharedWorkspace().notificationCenter()
     
     for event in nsw_config:
         event_config = nsw_config[event]
+        add_workspace_notification(event, event_config, notification_center)
+    
+    log_list("Listening for these NSWorkspace notifications: %s", nsw_config.keys())
 
-        if "class" in event_config:
-            obj         = get_handler_object(event_config['class'])
-            objc_method = "on%s:" % event
-            py_method   = objc_method.replace(":", "_")
-            if not hasattr(obj, py_method) or not callable(getattr(obj, py_method)):
-                print  >> sys.stderr, \
-                    "NSWorkspace Notification %s: handler class %s must define a %s method" % (event, event_config['class'], py_method)
-                sys.exit(1)
 
-            notification_center.addObserver_selector_name_object_(obj, objc_method, event, None)
-        else:
-            handler          = NSNotificationHandler.new()
-            handler.name     = "NSWorkspace Notification %s" % event
+# distnot patch: added this function to add a distnot
+def add_distributed_notification(event, event_config, dist_center):
+    if "class" in event_config:
+        obj         = get_handler_object(event_config['class'])
+        objc_method = "on%s:" % event
+        py_method   = objc_method.replace(":", "_")
+        
+        if not hasattr(obj, py_method) or not callable(getattr(obj, py_method)):
+            print >> sys.stderr, \
+                "NSDistributedNotification %s: handler class %s must define a %s method" % (event, event_config['class'], py_method)
+            sys.exit(1)
+            
+        dist_center.addObserver_selector_name_object_(obj, objc_method, event, None)
+    else:
+        shouldrm = False
+        process_event = {}
+        if not event in DISTRIBUTED_IDS:
+            DISTRIBUTED_IDS[event] = event_config
+            handler = NSNotificationHandler.new()
+            handler.name = "NSDistributed %s" % event
+            
+            if "process" in event_config:
+                notification_center = NSWorkspace.sharedWorkspace().notificationCenter()
+                process_event["process"] = event_config["process"]
+                process_event["event"] = event
+                process_event["event_config"] = event_config
+                
+                logging.info("Adding Process Monitor: %s" % process_event["process"])
+                
+                if not event in RELAUNCH_IDS:
+                    add_workspace_notification("NSWorkspaceDidLaunchApplicationNotification", process_event, notification_center)
+                    RELAUNCH_IDS[event] = process_event
+                else:
+                    shouldrm = True
+            
             handler.callable = get_callable_for_event(event, event_config, context=handler.name)
             
             assert(callable(handler.onNotification_))
+            
+            event_name = event
+            if event == '*':
+                event_name = None
+            
+            if not shouldrm:
+                dist_center.addObserver_selector_name_object_(handler, "onNotification:", event_name, None)
+            else:
+                del DISTRIBUTED_IDS[event]
+                dist_center.removeObserver_name_object_(handler, "onNotification", event_name, None)
 
-            notification_center.addObserver_selector_name_object_(handler, "onNotification:", event, None)
 
-    log_list("Listening for these NSWorkspace notifications: %s", nsw_config.keys())
+# distnot patch: see note above
+def add_distributed_notifications(nsd_config):
+    dist_center = NSDistributedNotificationCenter.defaultCenter()
+    for event in nsd_config:
+        event_config = nsd_config[event]
+        add_distributed_notification(event, event_config, dist_center)
+    
+    log_list("Listening for these NSDistributedNotifications: %s", nsd_config.keys())
 
 
 def add_sc_notifications(sc_config):
@@ -491,7 +567,11 @@ def main():
     
     CRANKD_OPTIONS = process_commandline()
     CRANKD_CONFIG  = load_config(CRANKD_OPTIONS)
-
+    
+    # distnot patch: added NSDistributed to config file, use same way as NSWorkspace
+    if "NSDistributed" in CRANKD_CONFIG:
+        add_distributed_notifications(CRANKD_CONFIG["NSDistributed"])
+    
     if "NSWorkspace" in CRANKD_CONFIG:
         add_workspace_notifications(CRANKD_CONFIG['NSWorkspace'])
     
@@ -546,6 +626,23 @@ def create_env_name(name):
     new_name = re.sub(r'\W+', '_', new_name)
     new_name = re.sub(r'_{2,}', '_', new_name)
     return new_name.upper().strip("_")
+
+
+# distnot patch: handles the reloading of the event in question, this will be called on *every*
+#        ApplicationLaunch event but only reloads events if it has a 'process' config option
+def do_relaunch(command, context=None, **kwargs):
+    # command=process name
+    # kwargs["config"]["event_data"]=original event
+    # kwargs["config"]["event_config"]=original event_config
+    event=kwargs["config"]["event"]
+    event_config=kwargs["config"]["event_config"]
+    if 'user_info' in kwargs:
+        if 'NSApplicationName' in kwargs['user_info']:
+            if kwargs['user_info']['NSApplicationName'] == event_config["process"]:
+                logging.info("%s: reloading handler %s" % (context, event))
+                dist_center = NSDistributedNotificationCenter.defaultCenter()
+                add_distributed_notification(event, event_config, dist_center)
+
 
 def do_shell(command, context=None, **kwargs):
     """Executes a shell command with logging"""
