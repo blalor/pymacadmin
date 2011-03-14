@@ -596,7 +596,7 @@ def add_mdns_notifications(mdns_config):
 def add_cl_notifications(cl_config):
     for conf in cl_config:
         manager = LocationDelegate.new()
-        manager.callable = get_callable_for_event('CoreLocation', conf, context="CLCoreLocation")
+        manager.callable = get_callable_for_event(conf, cl_config[conf], context="CLCoreLocation")
         manager.start_manager()
         CL_HANDLERS.append(manager)
 
