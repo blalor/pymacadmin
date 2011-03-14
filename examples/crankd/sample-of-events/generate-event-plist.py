@@ -53,6 +53,14 @@ def AddKnownEvents():
         NSWorkspaceWillSleepNotification
         NSWorkspaceWillUnmountNotification
                         '''.split())
+    
+    AddCategoryOfEvents(
+        u'NSDistributed',
+        (
+            u'com.apple.iTunes.playerInfo',
+            u'net.frozensilicon.pandoraBoy.playerInfo',
+        )
+    )
 
 def PrintEvents():
     """Prints all the events, for debugging purposes"""
