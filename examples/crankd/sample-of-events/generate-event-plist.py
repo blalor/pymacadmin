@@ -61,6 +61,21 @@ def AddKnownEvents():
             u'net.frozensilicon.pandoraBoy.playerInfo',
         )
     )
+    
+    AddCategoryOfEvents(
+        u'FSEvents',
+        (
+            u'/tmp/',
+        )
+    )
+    
+    AddCategoryOfEvents(
+        u'NSNetService',
+        (
+            u'_ssh._tcp.',
+        )
+    )
+
 
 def PrintEvents():
     """Prints all the events, for debugging purposes"""

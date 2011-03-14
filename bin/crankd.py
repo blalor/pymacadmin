@@ -76,8 +76,6 @@ SC_HANDLERS      = dict()     # Callbacks indexed by SystemConfiguration keys
 FS_WATCHED_FILES = dict()     # Callbacks indexed by filesystem path
 MDNS_BROWSERS    = dict()
 CL_HANDLERS      = []
-
-# distnot patch: added *_IDS globals to track addition/removal of events
 DISTRIBUTED_IDS  = dict()
 RELAUNCH_IDS     = dict()
 
@@ -116,6 +114,7 @@ class NSNotificationHandler(NSObject):
             )
         )
     
+    
     def onNotification_(self, the_notification):
         """Pass an NSNotifications to our handler"""
         if the_notification.userInfo:
@@ -133,26 +132,32 @@ class MDNSBrowser(NSObject):
         self.services = set()
         self.callable = None
         return self
-
+    
+    
     def search(self, type_):
         self.type = type_
         b = self.browser = NSNetServiceBrowser.new()
         b.setDelegate_(self)
         b.searchForServicesOfType_inDomain_(type_, '')
     
+    
     def netServiceBrowser_didFindService_moreComing_(self, browser, service, morecoming):
         self.services.add(service)
         service.setDelegate_(self)
         service.resolveWithTimeout_(5)
-
+    
+    
     def netServiceBrowser_didRemoveService_moreComing_(self, browser, service, morecoming):
         pass    
     
+    
     def netServiceDidResolveAddress_(self, service):
         self.notify(service, True)
-
+    
+    
     def netService_didNotResolve_(self, service, errinfo):
         self.notify(service, False)
+    
     
     def notify(self, service, resolved):
         if self.callable:
@@ -166,40 +171,49 @@ class MDNSBrowser(NSObject):
                 'resolved': resolved,
                 'TXTRecordData': service.TXTRecordData(),
             })
+        
+    
 
 
 class LocationDelegate(NSObject):
     def init(self):
         self = super(LocationDelegate, self).init()
-        if self is None: return None
+        if self is None:
+                return None
+        
         self.callable = None
         return self
-
+    
+    
     def start_manager(self):
         lm = self.manager = CLLocationManager.new()
         lm.setDelegate_(self)
         lm.setDesiredAccuracy_(kCLLocationAccuracyBest)
         lm.startUpdatingLocation()
-
+    
+    
     def locationManager_didUpdateToLocation_fromLocation_(self, manager, location, oldloc):
         c = location.coordinate()
         lat, lon = c.latitude, c.longitude
         haccuracy = location.horizontalAccuracy()
-
+        
         if oldloc and lat == oldloc.coordinate().latitude and \
            lon == oldloc.coordinate().longitude and \
            haccuracy == oldloc.horizontalAccuracy():
             return
-
+        
         if self.callable:
             self.callable(location_info={
                 'latitude': lat,
                 'longitude': lon,
                 'horizontalAccuracy': haccuracy,
             })
-
+        
+    
+    
     def locationManager_didFailWithError_(self, manager, error):
         pass
+    
 
 
 def log_list(msg, items, level=logging.INFO):
@@ -332,7 +346,6 @@ def list_events(option, opt_str, value, parser):
         NSWorkspaceWillUnmountNotification
     '''.split())
     
-    # distnot patch: output fact that crankd supports nsdistnot's
     print "Any NSDistributedNotification message.\n"
     
     sys.exit(0)
@@ -444,8 +457,6 @@ def get_sc_store():
     return SCDynamicStoreCreate(None, "crankd", handle_sc_event, None)
 
 
-# distnot patch: pulled code from add_workspace_notifications here so I can add individual notification
-#        programatically
 def add_workspace_notification(event, event_config, center):
     if "class" in event_config:
         obj         = get_handler_object(event_config['class'])
@@ -467,7 +478,6 @@ def add_workspace_notification(event, event_config, center):
         center.addObserver_selector_name_object_(handler, "onNotification:", event, None)
 
 
-# distnot patch: see note above
 def add_workspace_notifications(nsw_config):
     # See http://developer.apple.com/documentation/Cocoa/Conceptual/Workspace/Workspace.html
     notification_center = NSWorkspace.sharedWorkspace().notificationCenter()
@@ -479,7 +489,6 @@ def add_workspace_notifications(nsw_config):
     log_list("Listening for these NSWorkspace notifications: %s", nsw_config.keys())
 
 
-# distnot patch: added this function to add a distnot
 def add_distributed_notification(event, event_config, dist_center):
     if "class" in event_config:
         obj         = get_handler_object(event_config['class'])
@@ -529,7 +538,6 @@ def add_distributed_notification(event, event_config, dist_center):
                 dist_center.removeObserver_name_object_(handler, "onNotification", event_name, None)
 
 
-# distnot patch: see note above
 def add_distributed_notifications(nsd_config):
     dist_center = NSDistributedNotificationCenter.defaultCenter()
     for event in nsd_config:
@@ -673,7 +681,6 @@ def main():
     CRANKD_OPTIONS = process_commandline()
     CRANKD_CONFIG  = load_config(CRANKD_OPTIONS)
     
-    # distnot patch: added NSDistributed to config file, use same way as NSWorkspace
     if "NSDistributed" in CRANKD_CONFIG:
         add_distributed_notifications(CRANKD_CONFIG["NSDistributed"])
     
