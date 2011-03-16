@@ -444,6 +444,10 @@ def configure_logging():
     """Configures the logging module"""
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
     
+    root_logger = logging.getLogger()
+    root_logger.name = "crankd"
+    root_logger.handlers[0].setLevel(logging.ERROR)
+    
     # Enable logging to syslog as well:
     # Normally this would not be necessary but logging assumes syslog listens on
     # localhost syslog/udp, which is disabled on 10.5 (rdar://5871746)
