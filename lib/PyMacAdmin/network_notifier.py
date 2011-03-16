@@ -1,7 +1,9 @@
 # encoding: utf-8
 
-import sys
 from subprocess import call
+
+import logging
+logger = logging.getLogger(__name__)
 
 from SystemConfiguration import \
     SCDynamicStoreCreate, \
@@ -33,17 +35,17 @@ def growl(title, msg, sticky=False, priority=None):
     try:
         call(growl_args)
     except:
-        print "Unexpected error calling growl:", sys.exc_info()[0]
+        logger.error("Unexpected error calling growl", exc_info = True)
     
 
 
 def state_change(key=None, **kwargs):
     """State:/Network/Global/IPv4"""
     
-    print ((key, kwargs))
     value = get_sc_value(key)
     
     if value == None:
+        logger.warn("Network is down!")
         growl('Network change', 'Network is down!', sticky=True, priority='High')
     else:
         svc_id = value['PrimaryService']
@@ -52,6 +54,7 @@ def state_change(key=None, **kwargs):
         service_value = get_sc_value('State:/Network/Service/%s/IPv4' % (svc_id,))
         ip_addr = service_value['Addresses'][0]
         
+        logger.info('new IP for %s: %s' % (iface, ip_addr))
         growl(
             'Network change',
             'new IP for %s: %s' % (iface, ip_addr)
