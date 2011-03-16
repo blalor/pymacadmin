@@ -9,6 +9,16 @@ from SystemConfiguration import \
     SCDynamicStoreCreate, \
     SCDynamicStoreCopyValue
 
+## need custom version of Growl Python bindings for identifier support
+## webfaction:webapps/git_private/repos/growl_python.git
+import Growl
+growler = Growl.GrowlNotifier(
+    applicationName='crankd',
+    notifications=["state_change"],
+    applicationIcon=Growl.Image.imageFromPath("/System/Library/PreferencePanes/Network.prefPane/Contents/Resources/Network.icns"),
+)
+growler.register()
+
 STORE = SCDynamicStoreCreate(None, "network_notifier", None , None)
 
 def get_sc_value(key):
@@ -16,24 +26,8 @@ def get_sc_value(key):
 
 
 def growl(title, msg, sticky=False, priority=None):
-    growl_args = [
-        '/Users/ulalobr/bin/.Darwin/growlnotify',
-        '-n', 'crankd',
-        '-t', title,
-        '-m', msg,
-        '-d', 'crankd.notifier.network',
-        '--image', '/System/Library/PreferencePanes/Network.prefPane/Contents/Resources/Network.icns',
-    ]
-    
-    if sticky:
-        growl_args.append('-s')
-    
-    if priority != None:
-        growl_args.extend(('-p', priority,))
-    
-    # print growl_args
     try:
-        call(growl_args)
+        growler.notify('state_change', title, msg, sticky=sticky, priority=priority, identifier='crankd.notifier.network')
     except:
         logger.error("Unexpected error calling growl", exc_info = True)
     
