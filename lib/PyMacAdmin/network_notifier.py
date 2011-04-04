@@ -5,6 +5,8 @@ from subprocess import call
 import logging
 logger = logging.getLogger(__name__)
 
+import re
+
 from SystemConfiguration import \
     SCDynamicStoreCreate, \
     SCDynamicStoreCopyValue
@@ -13,28 +15,74 @@ from SystemConfiguration import \
 ## webfaction:webapps/git_private/repos/growl_python.git
 import Growl
 
+IDENT_PREFIX = 'crankd.notifier.network'
+
 def get_sc_value(key):
     return SCDynamicStoreCopyValue(STORE, key)
 
 
-def growl(title, msg, sticky=False, priority=None, ident='crankd.notifier.network'):
+def growl(title, msg, sticky=False, priority=None, ident=IDENT_PREFIX):
     try:
-        GROWLER.notify('state_change', title, msg, sticky=sticky, priority=priority, identifier=ident)
+        GROWLER.notify(
+            'state_change',
+            title,
+            msg,
+            sticky=sticky,
+            # priority=Growl.growlPriority[priority],
+            identifier=ident
+        )
     except:
         logger.error("Unexpected error calling growl", exc_info = True)
     
 
 
-def state_change(key=None, **kwargs):
+def interface_state_change(key=None, re_obj=None, **kwargs):
+    """State:/Network/Interface/([^/]+)/Link"""
+    
+    value = get_sc_value(key)
+    iface = re_obj.match(key).groups()[0]
+    ident = '%s.%s.%s' % (IDENT_PREFIX, iface, 'unknown')
+    
+    if not value:
+        # interface disappeared
+        logger.info("Interface %s disappeared", iface)
+        ident = '%s.%s.%s' % (IDENT_PREFIX, iface, 'disappeared')
+        message = '%s disappeared' % (iface,)
+    else:
+        if 'Active' in value and value['Active']:
+            logger.info("Interface %s is now active", iface)
+            ident = '%s.%s.%s' % (IDENT_PREFIX, iface, 'active')
+            message = '%s is active' % (iface,)
+            
+        elif 'Detaching' in value:
+            logger.info("Interface %s is detaching", iface)
+            ident = '%s.%s.%s' % (IDENT_PREFIX, iface, 'detaching')
+            message = '%s is detaching' % (iface,)
+        
+        else:
+            logger.warn("what just happened? %s [%s]", iface, value)
+            message = '%s: unknown' % (iface,)
+    
+    growl('Interface change', message, ident=ident)
+
+
+def ipv4_state_change(key=None, **kwargs):
     """State:/Network/Global/IPv4"""
     
     value = get_sc_value(key)
     
     new_primary_iface = None
     
+    sticky = False
+    priority = None
+    
     if value == None:
         logger.warn("Network is down!")
-        growl('Network change', 'Network is down!', sticky=True, priority='High')
+        
+        title = 'Network change'
+        message = 'Network is down!'
+        sticky = True
+        priority = 'High'
     else:
         svc_id = value['PrimaryService']
         new_primary_iface = value['PrimaryInterface']
@@ -48,12 +96,13 @@ def state_change(key=None, **kwargs):
         ip_addr = service_value['Addresses'][0]
         
         logger.info('new IP for %s: %s' % (new_primary_iface, ip_addr))
-        growl(
-            'Network change',
-            'new IP for %s: %s' % (new_primary_iface, ip_addr)
-        )
+        
+        title = 'Network change'
+        message = 'new IP for %s: %s' % (new_primary_iface, ip_addr)
         
         STATE['primary'] = new_primary_iface
+    
+    growl(title, message, sticky = sticky, priority = priority)
 
 
 ## globals and module startup stuff below
@@ -77,4 +126,7 @@ if tmp_val:
 del tmp_val
 
 if __name__ == '__main__':
-    state_change("State:/Network/Global/IPv4")
+    logging.basicConfig(level=logging.DEBUG)
+    ipv4_state_change("State:/Network/Global/IPv4")
+    interface_state_change(key = "State:/Network/Interface/en1/Link",
+                           re_obj = re.compile(r'''State:/Network/Interface/([^/]+)/Link'''))
