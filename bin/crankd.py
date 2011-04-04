@@ -71,13 +71,14 @@ from datetime import datetime
 
 VERSION          = '$Revision: #4 $'
 
-HANDLER_OBJECTS  = dict()     # Events which have a "class" handler use an instantiated object; we want to load only one copy
-SC_HANDLERS      = dict()     # Callbacks indexed by SystemConfiguration keys
-FS_WATCHED_FILES = dict()     # Callbacks indexed by filesystem path
-MDNS_BROWSERS    = dict()
-CL_HANDLERS      = []
-DISTRIBUTED_IDS  = dict()
-RELAUNCH_IDS     = dict()
+HANDLER_OBJECTS      = dict()     # Events which have a "class" handler use an instantiated object; we want to load only one copy
+EXPLICIT_SC_HANDLERS = dict()     # Callbacks indexed by explicit SystemConfiguration keys
+REGEXP_SC_HANDLERS   = dict()     # Callbacks indexed by regexp SystemConfiguration keys
+FS_WATCHED_FILES     = dict()     # Callbacks indexed by filesystem path
+MDNS_BROWSERS        = dict()
+CL_HANDLERS          = []
+DISTRIBUTED_IDS      = dict()
+RELAUNCH_IDS         = dict()
 
 class BaseHandler(object):
     # pylint: disable-msg=C0111,R0903
@@ -320,7 +321,19 @@ def handle_sc_event(store, changed_keys, info):
     """Fire every event handler for one or more events"""
     
     for key in changed_keys:
-        SC_HANDLERS[key](key=key, info=info)
+        found_handler = False
+        
+        if key in EXPLICIT_SC_HANDLERS:
+            EXPLICIT_SC_HANDLERS[key](key=key, info=info)
+            found_handler = True
+        else:
+            for re_key in REGEXP_SC_HANDLERS:
+                if re_key.match(key):
+                    REGEXP_SC_HANDLERS[re_key](key=key, info=info, re_obj=re_key)
+                    found_handler = True
+        
+        if not found_handler:
+            logging.error("dropped SC event; no handler for %s" % (key,))
 
 
 def list_events(option, opt_str, value, parser):
@@ -404,7 +417,10 @@ def load_config(options):
             'SystemConfiguration': {
                 'State:/Network/Global/IPv4': {
                     'command': '/bin/echo "Global IPv4 config changed"'
-                }
+                },
+                'regexp:State:/Network/Interface/([^/]+)/Link': {
+                    'command': '/bin/echo "Network interface link state changed"'
+                },
             },
             'NSWorkspace': {
                 'NSWorkspaceDidMountNotification': {
@@ -569,16 +585,25 @@ def add_sc_notifications(sc_config):
     
     keys = sc_config.keys()
     
+    regexp_sc_keys = []
     try:
         for key in keys:
-            SC_HANDLERS[key] = get_callable_for_event(key, sc_config[key], context="SystemConfiguration: %s" % key)
+            handler = get_callable_for_event(key, sc_config[key], context="SystemConfiguration: %s" % key)
+            
+            if key.startswith("regexp:"):
+                # strip "regexp:"
+                re_key = key[7:]
+                REGEXP_SC_HANDLERS[re.compile(re_key)] = handler
+                regexp_sc_keys.append(re_key)
+            else:
+                EXPLICIT_SC_HANDLERS[key] = handler
+            
     except AttributeError, exc:
         print  >> sys.stderr, "Error configuring SystemConfiguration events: %s" % exc
         sys.exit(1)
     
     store = get_sc_store()
-    
-    SCDynamicStoreSetNotificationKeys(store, None, keys)
+    SCDynamicStoreSetNotificationKeys(store, EXPLICIT_SC_HANDLERS.keys(), regexp_sc_keys)
     
     # Get a CFRunLoopSource for our store session and add it to the application's runloop:
     CFRunLoopAddSource(
