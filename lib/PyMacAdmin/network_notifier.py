@@ -49,10 +49,15 @@ def interface_state_change(key=None, re_obj=None, **kwargs):
         ident = '%s.%s.%s' % (IDENT_PREFIX, iface, 'disappeared')
         message = '%s disappeared' % (iface,)
     else:
-        if 'Active' in value and value['Active']:
-            logger.info("Interface %s is now active", iface)
-            ident = '%s.%s.%s' % (IDENT_PREFIX, iface, 'active')
-            message = '%s is active' % (iface,)
+        if 'Active' in value:
+            if value['Active']:
+                logger.info("Interface %s is now active", iface)
+                ident = '%s.%s.%s' % (IDENT_PREFIX, iface, 'active')
+                message = '%s is active' % (iface,)
+            else:
+                logger.info("Interface %s is now inactive", iface)
+                ident = '%s.%s.%s' % (IDENT_PREFIX, iface, 'inactive')
+                message = '%s is inactive' % (iface,)
             
         elif 'Detaching' in value:
             logger.info("Interface %s is detaching", iface)
@@ -109,7 +114,7 @@ def ipv4_state_change(key=None, **kwargs):
 STORE = SCDynamicStoreCreate(None, "network_notifier", None , None)
 
 GROWLER = Growl.GrowlNotifier(
-    applicationName='crankd',
+    applicationName='crankd.network_notifier',
     notifications=["state_change"],
     applicationIcon=Growl.Image.imageFromPath("/System/Library/PreferencePanes/Network.prefPane/Contents/Resources/Network.icns"),
 
