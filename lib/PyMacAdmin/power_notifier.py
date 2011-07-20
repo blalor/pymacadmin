@@ -9,7 +9,7 @@ from SystemConfiguration import \
 import logging
 logger = logging.getLogger(__name__)
 
-STORE = SCDynamicStoreCreate(None, "power_notifier", None , None)
+import Growl
 
 PREV_BATT_STATE = {
     'BatteryHealth' : None,
@@ -20,6 +20,23 @@ PREV_BATT_STATE = {
     'Time to Full Charge' : None,
 }
 
+IDENT_PREFIX = 'crankd.notifier.power'
+
+def growl(title, msg, sticky=False, priority=None, ident=IDENT_PREFIX):
+    try:
+        GROWLER.notify(
+            'state_change',
+            title,
+            msg,
+            sticky=sticky,
+            # priority=Growl.growlPriority[priority],
+            identifier=ident
+        )
+    except:
+        logger.error("Unexpected error calling growl", exc_info = True)
+    
+
+
 def battery_change(key=None, **kwargs):
     sc_value = SCDynamicStoreCopyValue(STORE, key)
     
@@ -28,7 +45,15 @@ def battery_change(key=None, **kwargs):
     
     if (PREV_BATT_STATE['Current Capacity'] != sc_value['Current Capacity']) and ("Is Charged" not in sc_value):
         if sc_value['Is Charging'] == 0:
-            logger.info("Battery capacity now %(Current Capacity)d%%; time to empty: %(Time to Empty)s" % sc_value)
+            msg = "Battery capacity now %(Current Capacity)d%%; time to empty: %(Time to Empty)s" % sc_value
+            
+            logger.info(msg)
+            
+            if sc_value['Current Capacity'] <= 5:
+                growl('Battery low!', msg, sticky=True)
+            elif sc_value['Current Capacity'] <= 15:
+                growl('Battery low!', msg)
+            
         else:
             logger.info("Battery capacity now %(Current Capacity)d%%; time to full: %(Time to Full Charge)s" % sc_value)
     
@@ -39,6 +64,18 @@ def battery_change(key=None, **kwargs):
         PREV_BATT_STATE[k] = sc_value[k]
 
 
+## globals and module startup stuff below
+GROWLER = Growl.GrowlNotifier(
+    applicationName='crankd.power_notifier',
+    notifications=["state_change"],
+    applicationIcon=Growl.Image.imageFromPath("/System/Library/PreferencePanes/EnergySaver.prefPane/Contents/Resources/EnergySaver.icns"),
+
+)
+GROWLER.register()
+
+STORE = SCDynamicStoreCreate(None, "power_notifier", None , None)
+
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG)
     battery_change('State:/IOKit/PowerSources/InternalBattery-0')
