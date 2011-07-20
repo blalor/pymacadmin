@@ -1,9 +1,9 @@
 # encoding: utf-8
 
-from subprocess import call
-
 import logging
 logger = logging.getLogger(__name__)
+
+import socket
 
 from SystemConfiguration import \
     SCDynamicStoreCreate, \
@@ -19,7 +19,7 @@ def get_sc_value(key):
 
 def growl(title, msg, sticky=False, priority=None, ident='crankd.notifier.network'):
     try:
-        GROWLER.notify('state_change', title, msg, sticky=sticky, priority=priority, identifier=ident)
+        GROWLER.notify('state_change', title, msg, sticky=sticky, identifier=ident)
     except:
         logger.error("Unexpected error calling growl", exc_info = True)
     
@@ -46,11 +46,16 @@ def state_change(key=None, **kwargs):
         
         service_value = get_sc_value('State:/Network/Service/%s/IPv4' % (svc_id,))
         ip_addr = service_value['Addresses'][0]
+        hostname = "unknown host"
+        try:
+            hostname = socket.gethostbyaddr(ip_addr)[0]
+        except socket.herror:
+            pass
         
         logger.info('new IP for %s: %s' % (new_primary_iface, ip_addr))
         growl(
             'Network change',
-            'new IP for %s: %s' % (new_primary_iface, ip_addr)
+            'new IP for %s: %s\n%s' % (new_primary_iface, ip_addr, hostname)
         )
         
         STATE['primary'] = new_primary_iface
