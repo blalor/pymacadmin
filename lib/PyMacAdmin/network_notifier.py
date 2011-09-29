@@ -1,10 +1,9 @@
 # encoding: utf-8
 
-from subprocess import call
-
 import logging
 logger = logging.getLogger(__name__)
 
+import socket
 import re
 
 from SystemConfiguration import \
@@ -99,14 +98,18 @@ def ipv4_state_change(key=None, **kwargs):
         
         service_value = get_sc_value('State:/Network/Service/%s/IPv4' % (svc_id,))
         ip_addr = service_value['Addresses'][0]
-        
-        logger.info('new IP for %s: %s' % (new_primary_iface, ip_addr))
+        hostname = "unknown host"
+        try:
+            hostname = socket.gethostbyaddr(ip_addr)[0]
+        except socket.herror:
+            pass
         
         title = 'Network change'
-        message = 'new IP for %s: %s' % (new_primary_iface, ip_addr)
+        message = 'new IP for %s: %s\n%s' % (new_primary_iface, ip_addr, hostname)
         
         STATE['primary'] = new_primary_iface
     
+    logger.info(message)
     growl(title, message, sticky = sticky, priority = priority)
 
 
