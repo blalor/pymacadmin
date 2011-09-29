@@ -1,10 +1,17 @@
 # encoding: utf-8
 
-from subprocess import call
+import subprocess
 
 from SystemConfiguration import \
     SCDynamicStoreCreate, \
-    SCDynamicStoreCopyValue
+    SCDynamicStoreCopyValue, \
+    SCNetworkSetSetCurrent, \
+    SCNetworkSetGetName, \
+    SCNetworkSetSetCurrent, \
+    SCNetworkSetGetName, \
+    SCNetworkSetCopyAll, \
+    SCNetworkSetCopyCurrent, \
+    SCPreferencesCreate
 
 import logging
 logger = logging.getLogger(__name__)
@@ -64,7 +71,74 @@ def battery_change(key=None, **kwargs):
         PREV_BATT_STATE[k] = sc_value[k]
 
 
+class NetworkSetSwitcher(object):
+    # {{{ __init__
+    def __init__(self):
+        super(NetworkSetSwitcher, self).__init__()
+        
+        self.__prefs = SCPreferencesCreate(None, "power_notifier", None)
+        self.__offlineSet = None
+        self.__lastNetworkSet = None
+    
+    # }}}
+    
+    # {{{ take_network_offline
+    def take_network_offline(self, key=None, **kwargs):
+        self.__lastNetworkSet = None
+        self.__offlineSet = None
+        
+        currentNetworkSet = SCNetworkSetCopyCurrent(self.__prefs)
+        
+        for netSet in SCNetworkSetCopyAll(self.__prefs):
+            if SCNetworkSetGetName(netSet) == u'Offline':
+                self.__offlineSet = netSet
+                break
+            
+        
+        if not self.__offlineSet:
+            logger.error("could not find offline set")
+        else:
+            if currentNetworkSet == self.__offlineSet:
+                logger.warn("Offline network set is already active")
+            else:
+                try:
+                    subprocess.check_call(("scselect", "Offline"))
+                    
+                    logger.info("Changed to Offline network set")
+                    
+                    self.__lastNetworkSet = currentNetworkSet
+                except subprocess.CalledProcessError:
+                    logger.error("could not switch to offline set", exc_info=True)
+                
+            
+        
+    # }}}
+    
+    # {{{ reactivate_network
+    def reactivate_network(self):
+        if self.__lastNetworkSet != None:
+            logger.debug("reactivating network")
+            
+            networkSetName = SCNetworkSetGetName(self.__lastNetworkSet)
+            
+            try:
+                subprocess.check_call(("scselect", networkSetName))
+                
+                logger.info("Changed to %s network set", networkSetName)
+            except subprocess.CalledProcessError:
+                logger.error("Could not switch to %s set", networkSetName, exc_info=True)
+            
+        else:
+            logger.error("last network set is unknown")
+        
+        self.__lastNetworkSet = None
+    
+    # }}}
+    
+
+
 ## globals and module startup stuff below
+
 GROWLER = Growl.GrowlNotifier(
     applicationName='crankd.power_notifier',
     notifications=["state_change"],
