@@ -83,7 +83,7 @@ class NetworkSetSwitcher(object):
     # }}}
     
     # {{{ take_network_offline
-    def take_network_offline(self, key=None, **kwargs):
+    def take_network_offline(self, **kwargs):
         self.__lastNetworkSet = None
         self.__offlineSet = None
         
@@ -115,7 +115,7 @@ class NetworkSetSwitcher(object):
     # }}}
     
     # {{{ reactivate_network
-    def reactivate_network(self):
+    def reactivate_network(self, **kwargs):
         if self.__lastNetworkSet != None:
             logger.debug("reactivating network")
             
